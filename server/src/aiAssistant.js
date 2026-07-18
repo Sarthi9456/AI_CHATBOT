@@ -1,17 +1,19 @@
-import Anthropic from "@anthropic-ai/sdk";
+// Uses Google Gemini's free-tier API (no credit card required).
+// Get a key at https://aistudio.google.com/app/apikey
 
-const apiKey = process.env.ANTHROPIC_API_KEY;
-const client = apiKey ? new Anthropic({ apiKey }) : null;
+const apiKey = process.env.GEMINI_API_KEY;
+const GEMINI_URL =
+  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
 
-export const AI_BOT_NAME = "Claude";
+export const AI_BOT_NAME = "AI Assistant";
 
 /**
- * Ask Claude to answer a question, given some recent chat history for context.
+ * Ask Gemini to answer a question, given some recent chat history for context.
  * recentMessages: [{ username, text }]
  */
 export async function askAI(question, recentMessages = []) {
-  if (!client) {
-    return "⚠️ AI assistant isn't configured yet — add ANTHROPIC_API_KEY to server/.env to enable it.";
+  if (!apiKey) {
+    return "⚠️ AI assistant isn't configured yet — add GEMINI_API_KEY to server/.env to enable it.";
   }
 
   const contextBlock = recentMessages
@@ -19,26 +21,34 @@ export async function askAI(question, recentMessages = []) {
     .map((m) => `${m.username}: ${m.text}`)
     .join("\n");
 
-  const systemPrompt = `You are a helpful, friendly AI assistant embedded inside a group chat app.
+  const prompt = `You are a helpful, friendly AI assistant embedded inside a group chat app.
 You can see the recent conversation for context. Keep answers concise (a few sentences unless
 the question needs code or a list), and speak directly to the person who asked. If the question
-isn't clear from context, just answer it generally.`;
+isn't clear from context, just answer it generally.
+
+Recent conversation:
+${contextBlock}
+
+Question: ${question}`;
 
   try {
-    const response = await client.messages.create({
-      model: "claude-sonnet-5",
-      max_tokens: 600,
-      system: systemPrompt,
-      messages: [
-        {
-          role: "user",
-          content: `Recent conversation:\n${contextBlock}\n\nQuestion: ${question}`,
-        },
-      ],
+    const response = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+      }),
     });
 
-    const textBlock = response.content.find((c) => c.type === "text");
-    return textBlock ? textBlock.text : "I couldn't come up with a response for that.";
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.error("AI assistant error:", JSON.stringify(data));
+      return "⚠️ Something went wrong reaching the AI assistant. Check the server logs.";
+    }
+
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    return text || "I couldn't come up with a response for that.";
   } catch (err) {
     console.error("AI assistant error:", err.message);
     return "⚠️ Something went wrong reaching the AI assistant. Check the server logs.";
